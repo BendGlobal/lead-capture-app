@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lead Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container wide">
+    <h1>Lead Dashboard</h1>
+    <p class="summary-bar">Total leads captured: <strong>{{ leads|length }}</strong></p>
+
+    {% if leads %}
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th>Interest</th>
+          <th>Date Captured</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead in leads %}
+        <tr>
+          <td>{{ lead.name }}</td>
+          <td>{{ lead.email }}</td>
+          <td>{{ lead.phone }}</td>
+          <td>{{ lead.interest }}</td>
+          <td>{{ lead.created_at.strftime('%b %d, %Y %I:%M %p') }} UTC</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty-state">No leads captured yet.</p>
+    {% endif %}
+
+    <p class="nav-link"><a href="/">Back to Form</a></p>
+  </div>
+</body>
+</html>

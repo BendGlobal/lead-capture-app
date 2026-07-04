@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Get in Touch</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <h1>Get in Touch</h1>
+    <p class="subheading">Tell us what you're looking for and we'll be in touch shortly</p>
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <div class="flash-message">
+      {% for message in messages %}
+      <p>{{ message }}</p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <form id="leadForm" action="/submit" method="POST" novalidate>
+      <div class="field">
+        <label for="name">Name</label>
+        <input type="text" id="name" name="name" required>
+        <p class="error-message">Please enter your name.</p>
+      </div>
+
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required>
+        <p class="error-message">Please enter a valid email address.</p>
+      </div>
+
+      <div class="field">
+        <label for="phone">Phone</label>
+        <input type="tel" id="phone" name="phone" required>
+        <p class="error-message">Please enter your phone number.</p>
+      </div>
+
+      <div class="field">
+        <label for="interest">Interest</label>
+        <select id="interest" name="interest" required>
+          <option value="" disabled selected>Select an option</option>
+          <option value="General Enquiry">General Enquiry</option>
+          <option value="Pricing Information">Pricing Information</option>
+          <option value="Book a Consultation">Book a Consultation</option>
+          <option value="Ready to Purchase">Ready to Purchase</option>
+        </select>
+        <p class="error-message">Please choose an option.</p>
+      </div>
+
+      <button type="submit">Submit</button>
+    </form>
+  </div>
+
+  <script>
+    document.querySelectorAll('#leadForm [required]').forEach(function (field) {
+      field.addEventListener('invalid', function () {
+        field.classList.add('error');
+        field.closest('.field').classList.add('has-error');
+      });
+      field.addEventListener('input', function () {
+        field.classList.remove('error');
+        field.closest('.field').classList.remove('has-error');
+      });
+      field.addEventListener('change', function () {
+        field.classList.remove('error');
+        field.closest('.field').classList.remove('has-error');
+      });
+    });
+  </script>
+</body>
+</html>
