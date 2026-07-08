@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat with Alex</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <h1>Chat with Alex</h1>
+    <p class="subheading">Ask a question or tell us what you're looking for — Alex is here to help.</p>
+
+    <div class="chat-container">
+      <div class="chat-messages" id="chatMessages"></div>
+      <p class="typing-indicator" id="typingIndicator">Alex is typing...</p>
+      <div class="chat-input-row">
+        <input type="text" id="chatInput" placeholder="Type your message..." autocomplete="off">
+        <button type="button" id="sendButton">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const chatMessages = document.getElementById('chatMessages');
+    const typingIndicator = document.getElementById('typingIndicator');
+    const chatInput = document.getElementById('chatInput');
+    const sendButton = document.getElementById('sendButton');
+
+    let conversationHistory = [];
+    let leadCaptured = false;
+
+    function appendMessage(role, text) {
+      const div = document.createElement('div');
+      div.className = 'message ' + (role === 'user' ? 'visitor' : 'alex');
+      div.textContent = text;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function appendSystemNote(text) {
+      const div = document.createElement('div');
+      div.className = 'message system-note';
+      div.textContent = text;
+      chatMessages.appendChild(div);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function setInputEnabled(enabled) {
+      chatInput.disabled = !enabled;
+      sendButton.disabled = !enabled;
+    }
+
+    async function sendToServer(message, displayUserMessage) {
+      if (displayUserMessage) {
+        appendMessage('user', message);
+      }
+
+      setInputEnabled(false);
+      typingIndicator.classList.add('visible');
+
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message, history: conversationHistory }),
+        });
+        const data = await res.json();
+
+        typingIndicator.classList.remove('visible');
+
+        conversationHistory.push({ role: 'user', content: message });
+        conversationHistory.push({ role: 'assistant', content: data.message });
+
+        appendMessage('assistant', data.message);
+
+        if (data.lead_captured) {
+          leadCaptured = true;
+          appendSystemNote('This conversation has ended. Thanks for reaching out!');
+          chatInput.placeholder = 'Conversation complete';
+          setInputEnabled(false);
+        } else {
+          setInputEnabled(true);
+          chatInput.focus();
+        }
+      } catch (err) {
+        typingIndicator.classList.remove('visible');
+        appendSystemNote('Something went wrong. Please try again.');
+        setInputEnabled(true);
+      }
+    }
+
+    function handleSend() {
+      if (leadCaptured) return;
+      const text = chatInput.value.trim();
+      if (!text) return;
+      chatInput.value = '';
+      sendToServer(text, true);
+    }
+
+    sendButton.addEventListener('click', handleSend);
+    chatInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleSend();
+      }
+    });
+
+    window.addEventListener('DOMContentLoaded', function () {
+      sendToServer('', false);
+    });
+  </script>
+</body>
+</html>
