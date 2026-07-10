@@ -3,16 +3,20 @@ import os
 
 import anthropic
 from flask import Flask, flash, jsonify, redirect, render_template, request, session
+from flask_cors import CORS
 
 from models import Lead, db
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
 
+CORS(app, resources={r"/chat": {"origins": "*"}})
+
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-ALEX_SYSTEM_PROMPT = """You are Alex, a friendly and professional assistant for [Business Name].
+ALEX_SYSTEM_PROMPT = """You are Alex, a friendly and professional assistant for {business_name}.
+{business_name} offers the following services: {services}. It is located in {location}.
 Your job is to have a warm, natural conversation with website visitors
 to understand what they're looking for and how the business can help them.
 
@@ -38,7 +42,7 @@ Rules for the conversation:
 When you have collected all four pieces of information, output a special
 JSON summary on a new line in exactly this format and nothing else after it:
 
-LEAD_CAPTURED::{"name":"...","email":"...","phone":"...","interest":"...","intent":"warm|hot"}
+LEAD_CAPTURED::{{"name":"...","email":"...","phone":"...","interest":"...","intent":"warm|hot"}}
 
 Set intent to "hot" if they expressed strong buying intent or urgency.
 Set intent to "warm" if they're interested but still exploring."""
@@ -101,6 +105,9 @@ def leads():
 
 
 EMPTY_MESSAGE_PLACEHOLDER = "[Start the conversation with a warm greeting]"
+DEFAULT_BUSINESS_NAME = "our business"
+DEFAULT_SERVICES = "a range of products and services"
+DEFAULT_LOCATION = "our local area"
 
 
 @app.route("/chat", methods=["POST"])
@@ -109,6 +116,13 @@ def chat():
     message = data.get("message", "").strip()
     history_raw = data.get("history", [])
     history = json.loads(history_raw) if isinstance(history_raw, str) and history_raw else (history_raw or [])
+
+    business_name = data.get("business_name", "").strip() or DEFAULT_BUSINESS_NAME
+    services = data.get("services", "").strip() or DEFAULT_SERVICES
+    location = data.get("location", "").strip() or DEFAULT_LOCATION
+    system_prompt = ALEX_SYSTEM_PROMPT.format(
+        business_name=business_name, services=services, location=location
+    )
 
     if not message:
         message = EMPTY_MESSAGE_PLACEHOLDER
@@ -122,7 +136,7 @@ def chat():
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
-        system=ALEX_SYSTEM_PROMPT,
+        system=system_prompt,
         messages=messages,
     )
     reply_text = next((block.text for block in response.content if block.type == "text"), "")
