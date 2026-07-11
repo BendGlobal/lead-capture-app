@@ -5,6 +5,7 @@ import anthropic
 from flask import Flask, flash, jsonify, redirect, render_template, request, session
 from flask_cors import CORS
 
+from email_service import send_lead_confirmation, send_owner_notification
 from models import Lead, db
 
 app = Flask(__name__)
@@ -110,6 +111,26 @@ DEFAULT_SERVICES = "a range of products and services"
 DEFAULT_LOCATION = "our local area"
 
 
+@app.route("/business/<slug>")
+def business_page(slug):
+    lead_name = request.args.get("name", "").strip() or "there"
+    services = request.args.get("services", "").strip() or DEFAULT_SERVICES
+    location = request.args.get("location", "").strip() or DEFAULT_LOCATION
+    business_name = (
+        request.args.get("business", "").strip()
+        or slug.replace("-", " ").strip().title()
+        or DEFAULT_BUSINESS_NAME
+    )
+
+    return render_template(
+        "business.html",
+        business_name=business_name,
+        lead_name=lead_name,
+        services=services,
+        location=location,
+    )
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json(silent=True) or request.form
@@ -154,6 +175,17 @@ def chat():
         )
         db.session.add(lead)
         db.session.commit()
+
+        try:
+            send_lead_confirmation(lead, business_name, services, location)
+        except Exception:
+            app.logger.exception("Failed to send lead confirmation email")
+
+        try:
+            owner_email = os.environ.get("OWNER_EMAIL")
+            send_owner_notification(lead, business_name, owner_email)
+        except Exception:
+            app.logger.exception("Failed to send owner notification email")
 
         return jsonify({
             "lead_captured": True,

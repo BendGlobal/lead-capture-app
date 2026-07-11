@@ -305,3 +305,61 @@ tbody tr:hover {
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+.video-placeholder {
+  margin-bottom: 32px;
+  padding: 48px 20px;
+  border-radius: 10px;
+  background: #eef1f6;
+  border: 1px dashed #cbd2d9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: #616e7c;
+}
+
+.video-placeholder svg {
+  width: 44px;
+  height: 44px;
+  color: #2f6feb;
+}
+
+.video-placeholder span {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.business-section {
+  margin-bottom: 28px;
+}
+
+.business-section h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+  color: #16213e;
+}
+
+.business-section p {
+  margin: 0;
+  color: #334155;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.service-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.service-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid #e4e9f0;
+  font-size: 15px;
+  color: #334155;
+}
+
+.service-list li:last-child {
+  border-bottom: none;
+}

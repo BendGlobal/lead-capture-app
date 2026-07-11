@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ business_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="container">
+    <h1>{{ business_name }}</h1>
+    <p class="subheading">
+      Hi {{ lead_name }}, thanks for reaching out — someone from {{ business_name }} will be in touch with you shortly.
+    </p>
+
+    <div class="video-placeholder">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M10 8.5L16 12L10 15.5V8.5Z" fill="currentColor"/>
+      </svg>
+      <span>Introduction Video</span>
+    </div>
+
+    <div class="business-section">
+      <h2>Services</h2>
+      <ul class="service-list">
+        {% for service in services.split(',') %}
+        <li>{{ service.strip() }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="business-section">
+      <h2>Location</h2>
+      <p>{{ location }}</p>
+    </div>
+  </div>
+</body>
+</html>
