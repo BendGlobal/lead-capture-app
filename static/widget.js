@@ -13,6 +13,11 @@
     location: scriptTag.getAttribute("data-location") || "our local area",
     mode: scriptTag.getAttribute("data-mode") || "bubble",
     apiUrl: scriptTag.getAttribute("data-api-url") || "",
+    stripePublishableKey: scriptTag.getAttribute("data-stripe-publishable-key") || "",
+    depositAmount: parseFloat(scriptTag.getAttribute("data-deposit-amount")) || 100,
+    offerHeadline: scriptTag.getAttribute("data-offer-headline") || "Secure your booking now!",
+    incentive: scriptTag.getAttribute("data-incentive") || "Pay your deposit now and we'll prioritise your job",
+    countdownMinutes: parseFloat(scriptTag.getAttribute("data-countdown")) || 15,
   };
 
   if (!config.apiUrl) {
@@ -25,6 +30,8 @@
   }
 
   var CHAT_ENDPOINT = config.apiUrl.replace(/\/+$/, "") + "/chat";
+  var PAYMENT_INTENT_ENDPOINT = config.apiUrl.replace(/\/+$/, "") + "/create-payment-intent";
+  var STRIPE_JS_URL = "https://js.stripe.com/v3/";
 
   var WIDGET_CSS = "" +
     ":host {" +
@@ -198,6 +205,112 @@
     ".chat-input:disabled, .send-btn:disabled {" +
     "  opacity: 0.6;" +
     "  cursor: not-allowed;" +
+    "}" +
+    ".payment-offer {" +
+    "  align-self: stretch;" +
+    "  max-width: 100%;" +
+    "  background: #fff8ec;" +
+    "  border: 1px solid #f3d9a4;" +
+    "  border-radius: 12px;" +
+    "  padding: 14px;" +
+    "  display: flex;" +
+    "  flex-direction: column;" +
+    "  gap: 8px;" +
+    "}" +
+    ".payment-offer .offer-headline {" +
+    "  font-size: 14.5px;" +
+    "  font-weight: 700;" +
+    "  color: #16213e;" +
+    "}" +
+    ".payment-offer .offer-incentive {" +
+    "  font-size: 13px;" +
+    "  color: #616e7c;" +
+    "  line-height: 1.4;" +
+    "}" +
+    ".payment-offer .offer-deposit {" +
+    "  font-size: 13.5px;" +
+    "  color: #1f2933;" +
+    "}" +
+    ".payment-offer .offer-deposit strong {" +
+    "  color: #16213e;" +
+    "  font-size: 16px;" +
+    "}" +
+    ".payment-offer .offer-countdown {" +
+    "  font-size: 12px;" +
+    "  color: #b45309;" +
+    "  font-weight: 600;" +
+    "}" +
+    ".payment-offer .offer-actions {" +
+    "  display: flex;" +
+    "  gap: 8px;" +
+    "  margin-top: 4px;" +
+    "}" +
+    ".pay-now-btn {" +
+    "  flex: 1;" +
+    "  padding: 10px 14px;" +
+    "  font-size: 13.5px;" +
+    "  font-weight: 600;" +
+    "  color: #fff;" +
+    "  background: #16a34a;" +
+    "  border: none;" +
+    "  border-radius: 6px;" +
+    "  cursor: pointer;" +
+    "}" +
+    ".pay-now-btn:hover {" +
+    "  background: #15803d;" +
+    "}" +
+    ".pay-now-btn:disabled {" +
+    "  opacity: 0.6;" +
+    "  cursor: not-allowed;" +
+    "}" +
+    ".dismiss-btn {" +
+    "  padding: 10px 12px;" +
+    "  font-size: 13px;" +
+    "  font-weight: 600;" +
+    "  color: #616e7c;" +
+    "  background: transparent;" +
+    "  border: 1px solid #cbd2d9;" +
+    "  border-radius: 6px;" +
+    "  cursor: pointer;" +
+    "}" +
+    ".payment-element-mount {" +
+    "  margin-top: 6px;" +
+    "  padding: 10px;" +
+    "  background: #fff;" +
+    "  border-radius: 8px;" +
+    "  border: 1px solid #e4e9f0;" +
+    "}" +
+    ".submit-payment-btn {" +
+    "  width: 100%;" +
+    "  margin-top: 10px;" +
+    "  padding: 10px 14px;" +
+    "  font-size: 13.5px;" +
+    "  font-weight: 600;" +
+    "  color: #fff;" +
+    "  background: #2f6feb;" +
+    "  border: none;" +
+    "  border-radius: 6px;" +
+    "  cursor: pointer;" +
+    "}" +
+    ".submit-payment-btn:hover {" +
+    "  background: #2657c4;" +
+    "}" +
+    ".submit-payment-btn:disabled {" +
+    "  opacity: 0.6;" +
+    "  cursor: not-allowed;" +
+    "}" +
+    ".payment-status-msg {" +
+    "  font-size: 12.5px;" +
+    "  color: #b91c1c;" +
+    "  margin-top: 4px;" +
+    "}" +
+    ".payment-offer.expired .pay-now-btn {" +
+    "  opacity: 0.5;" +
+    "  cursor: not-allowed;" +
+    "}" +
+    ".payment-offer.success {" +
+    "  background: #f0fdf4;" +
+    "  border-color: #86efac;" +
     "}";
 
   var WIDGET_HTML = "" +
@@ -250,6 +363,8 @@
     var conversationHistory = [];
     var leadCaptured = false;
     var panelOpened = false;
+    var currentLeadId = null;
+    var stripeJsPromise = null;
 
     function appendMessage(role, text) {
       var div = document.createElement("div");
@@ -270,6 +385,168 @@
     function setInputEnabled(enabled) {
       inputEl.disabled = !enabled;
       sendBtn.disabled = !enabled;
+    }
+
+    function loadStripeJs() {
+      if (window.Stripe) {
+        return Promise.resolve(window.Stripe);
+      }
+      if (stripeJsPromise) {
+        return stripeJsPromise;
+      }
+      stripeJsPromise = new Promise(function (resolve, reject) {
+        var existing = document.querySelector('script[src="' + STRIPE_JS_URL + '"]');
+        if (existing) {
+          existing.addEventListener("load", function () {
+            resolve(window.Stripe);
+          });
+          existing.addEventListener("error", reject);
+          return;
+        }
+        var script = document.createElement("script");
+        script.src = STRIPE_JS_URL;
+        script.async = true;
+        script.onload = function () {
+          resolve(window.Stripe);
+        };
+        script.onerror = function () {
+          reject(new Error("Failed to load Stripe.js"));
+        };
+        document.head.appendChild(script);
+      });
+      return stripeJsPromise;
+    }
+
+    function formatDollars(amount) {
+      return "$" + Number(amount).toFixed(2).replace(/\.00$/, "");
+    }
+
+    function showPaymentOffer() {
+      var card = document.createElement("div");
+      card.className = "payment-offer";
+      card.innerHTML =
+        '<div class="offer-headline"></div>' +
+        '<div class="offer-incentive"></div>' +
+        '<div class="offer-deposit">Deposit: <strong></strong></div>' +
+        '<div class="offer-countdown"></div>' +
+        '<div class="offer-actions">' +
+        '  <button type="button" class="pay-now-btn">Pay Now</button>' +
+        '  <button type="button" class="dismiss-btn">Maybe later</button>' +
+        "</div>" +
+        '<div class="payment-element-mount" style="display:none;"></div>' +
+        '<button type="button" class="submit-payment-btn" style="display:none;">Submit Payment</button>' +
+        '<div class="payment-status-msg"></div>';
+
+      card.querySelector(".offer-headline").textContent = config.offerHeadline;
+      card.querySelector(".offer-incentive").textContent = config.incentive;
+      card.querySelector(".offer-deposit strong").textContent = formatDollars(config.depositAmount);
+
+      messagesEl.appendChild(card);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+
+      var payNowBtn = card.querySelector(".pay-now-btn");
+      var dismissBtn = card.querySelector(".dismiss-btn");
+      var countdownEl = card.querySelector(".offer-countdown");
+      var mountEl = card.querySelector(".payment-element-mount");
+      var submitBtn = card.querySelector(".submit-payment-btn");
+      var statusEl = card.querySelector(".payment-status-msg");
+
+      var secondsLeft = Math.round(config.countdownMinutes * 60);
+      var countdownInterval = setInterval(function () {
+        secondsLeft -= 1;
+        if (secondsLeft <= 0) {
+          clearInterval(countdownInterval);
+          countdownEl.textContent = "This offer has expired";
+          card.classList.add("expired");
+          payNowBtn.disabled = true;
+          return;
+        }
+        var mins = Math.floor(secondsLeft / 60);
+        var secs = secondsLeft % 60;
+        countdownEl.textContent =
+          "Offer expires in " + mins + ":" + (secs < 10 ? "0" + secs : secs);
+      }, 1000);
+      countdownEl.textContent =
+        "Offer expires in " + Math.floor(secondsLeft / 60) + ":" + (secondsLeft % 60 < 10 ? "0" : "") + (secondsLeft % 60);
+
+      dismissBtn.addEventListener("click", function () {
+        clearInterval(countdownInterval);
+        card.remove();
+        // The conversation has already ended and the lead is already captured —
+        // dismissing the offer has no further effect.
+      });
+
+      payNowBtn.addEventListener("click", function () {
+        payNowBtn.disabled = true;
+        dismissBtn.disabled = true;
+        statusEl.textContent = "";
+        statusEl.style.color = "#616e7c";
+        statusEl.textContent = "Setting up secure payment...";
+
+        fetch(PAYMENT_INTENT_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lead_id: currentLeadId,
+            amount: Math.round(config.depositAmount * 100),
+          }),
+        })
+          .then(function (res) {
+            return res.json();
+          })
+          .then(function (data) {
+            if (!data.client_secret) {
+              throw new Error("No client secret returned");
+            }
+            if (!config.stripePublishableKey) {
+              throw new Error("Payments are not configured for this site (missing publishable key).");
+            }
+            return loadStripeJs().then(function (Stripe) {
+              var stripe = Stripe(config.stripePublishableKey);
+              var elements = stripe.elements({ clientSecret: data.client_secret });
+              var paymentElement = elements.create("payment");
+
+              clearInterval(countdownInterval);
+              countdownEl.textContent = "";
+              mountEl.style.display = "block";
+              paymentElement.mount(mountEl);
+              submitBtn.style.display = "block";
+              statusEl.textContent = "";
+
+              submitBtn.addEventListener("click", function () {
+                submitBtn.disabled = true;
+                statusEl.style.color = "#616e7c";
+                statusEl.textContent = "Processing payment...";
+
+                stripe
+                  .confirmPayment({ elements: elements, redirect: "if_required" })
+                  .then(function (result) {
+                    if (result.error) {
+                      statusEl.style.color = "#b91c1c";
+                      statusEl.textContent = result.error.message || "Payment failed. Please try again.";
+                      submitBtn.disabled = false;
+                      return;
+                    }
+                    card.classList.add("success");
+                    card.innerHTML =
+                      '<div class="offer-headline">Payment received!</div>' +
+                      '<div class="offer-incentive">Your booking is confirmed. We will be in touch shortly to confirm the details.</div>';
+                  })
+                  .catch(function () {
+                    statusEl.style.color = "#b91c1c";
+                    statusEl.textContent = "Something went wrong processing your payment. Please try again.";
+                    submitBtn.disabled = false;
+                  });
+              });
+            });
+          })
+          .catch(function (err) {
+            statusEl.style.color = "#b91c1c";
+            statusEl.textContent = err.message || "Couldn't start the payment. Please try again.";
+            payNowBtn.disabled = false;
+            dismissBtn.disabled = false;
+          });
+      });
     }
 
     function sendToServer(message, displayUserMessage) {
@@ -304,9 +581,14 @@
 
           if (data.lead_captured) {
             leadCaptured = true;
+            currentLeadId = data.lead_id;
             appendSystemNote("This conversation has ended. Thanks for reaching out!");
             inputEl.placeholder = "Conversation complete";
             setInputEnabled(false);
+
+            if (data.intent === "hot") {
+              showPaymentOffer();
+            }
           } else {
             setInputEnabled(true);
             inputEl.focus();

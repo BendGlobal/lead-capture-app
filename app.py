@@ -2,19 +2,23 @@ import json
 import os
 
 import anthropic
+import stripe
 from flask import Flask, flash, jsonify, redirect, render_template, request, session
 from flask_cors import CORS
 
-from email_service import send_lead_confirmation, send_owner_notification
+from email_service import send_lead_confirmation, send_owner_notification, send_payment_confirmation
 from models import Lead, db
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev")
 
-CORS(app, resources={r"/chat": {"origins": "*"}})
+CORS(app, resources={r"/chat": {"origins": "*"}, r"/create-payment-intent": {"origins": "*"}})
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
 ALEX_SYSTEM_PROMPT = """You are Alex, a friendly and professional assistant for {business_name}.
 {business_name} offers the following services: {services}. It is located in {location}.
@@ -190,9 +194,64 @@ def chat():
         return jsonify({
             "lead_captured": True,
             "message": f"Thanks, {lead.name}! We've got your details and will be in touch shortly.",
+            "lead_id": lead.id,
+            "intent": lead.intent,
         })
 
     return jsonify({"lead_captured": False, "message": reply_text})
+
+
+@app.route("/create-payment-intent", methods=["POST"])
+def create_payment_intent():
+    data = request.get_json(silent=True) or {}
+    lead_id = data.get("lead_id")
+    amount = data.get("amount", 10000)
+
+    lead = db.session.get(Lead, lead_id)
+    if lead is None:
+        return jsonify({"error": "Lead not found"}), 404
+
+    payment_intent = stripe.PaymentIntent.create(
+        amount=amount,
+        currency="aud",
+        metadata={"lead_id": str(lead.id)},
+    )
+
+    lead.stripe_payment_intent_id = payment_intent.id
+    lead.payment_status = "pending"
+    db.session.commit()
+
+    return jsonify({
+        "client_secret": payment_intent.client_secret,
+        "payment_intent_id": payment_intent.id,
+    })
+
+
+@app.route("/webhook", methods=["POST"])
+def stripe_webhook():
+    payload = request.get_data()
+    sig_header = request.headers.get("Stripe-Signature")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except (ValueError, stripe.error.SignatureVerificationError):
+        return "Invalid signature", 400
+
+    if event["type"] == "payment_intent.succeeded":
+        payment_intent = event["data"]["object"]
+        lead = Lead.query.filter_by(stripe_payment_intent_id=payment_intent["id"]).first()
+
+        if lead is not None:
+            lead.payment_status = "completed"
+            lead.payment_amount = payment_intent["amount_received"]
+            db.session.commit()
+
+            try:
+                send_payment_confirmation(lead, lead.payment_amount)
+            except Exception:
+                app.logger.exception("Failed to send payment confirmation email")
+
+    return "", 200
 
 
 if __name__ == "__main__":

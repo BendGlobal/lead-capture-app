@@ -179,3 +179,43 @@ def send_owner_notification(lead, business_name, owner_email):
     )
     client = _get_client()
     return client.send(message)
+
+
+def send_payment_confirmation(lead, amount_cents):
+    first_name = (lead.name or "there").split()[0]
+    amount_display = f"${amount_cents / 100:,.2f}"
+
+    html_content = f"""
+    <html>
+      <body style="margin:0; padding:0; background:#f4f6f8; font-family:'Segoe UI', Helvetica, Arial, sans-serif;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8; padding:40px 20px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="100%" style="max-width:520px; background:#ffffff; border-radius:10px; overflow:hidden;">
+                <tr>
+                  <td style="padding:36px 36px 24px;">
+                    <h1 style="margin:0 0 12px; font-size:22px; color:#16213e;">Your booking is confirmed, {first_name}!</h1>
+                    <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#334155;">
+                      We've received your deposit of <strong>{amount_display}</strong>. Your booking is confirmed.
+                    </p>
+                    <p style="margin:0; font-size:15px; line-height:1.6; color:#334155;">
+                      Someone will be in touch shortly to confirm the details.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+
+    message = Mail(
+        from_email=_from_email(),
+        to_emails=lead.email,
+        subject="Your booking is confirmed!",
+        html_content=html_content,
+    )
+    client = _get_client()
+    return client.send(message)
