@@ -32,6 +32,98 @@
   var CHAT_ENDPOINT = config.apiUrl.replace(/\/+$/, "") + "/chat";
   var PAYMENT_INTENT_ENDPOINT = config.apiUrl.replace(/\/+$/, "") + "/create-payment-intent";
   var STRIPE_JS_URL = "https://js.stripe.com/v3/";
+  var MODAL_STYLE_ID = "aw-payment-modal-styles";
+
+  // Stripe Elements does not render reliably inside a Shadow DOM (iframe sizing
+  // and postMessage issues), so the payment modal lives directly on document.body,
+  // outside the widget's shadow root. Because it's unprotected by shadow isolation,
+  // the critical visual properties are set !important so they survive aggressive
+  // host-page CSS (e.g. `* { color: red !important }`).
+  var MODAL_CSS = "" +
+    ".aw-payment-modal-overlay {" +
+    "  all: initial;" +
+    "  position: fixed;" +
+    "  top: 0; left: 0; right: 0; bottom: 0;" +
+    "  background: rgba(15, 23, 42, 0.55);" +
+    "  display: flex;" +
+    "  align-items: center;" +
+    "  justify-content: center;" +
+    "  z-index: 2147483647;" +
+    "  padding: 20px;" +
+    "  box-sizing: border-box;" +
+    "}" +
+    ".aw-payment-modal-overlay, .aw-payment-modal-overlay * {" +
+    "  box-sizing: border-box;" +
+    "  font-family: 'Segoe UI', Helvetica, Arial, sans-serif !important;" +
+    "}" +
+    ".aw-payment-modal-box {" +
+    "  background: #ffffff !important;" +
+    "  border-radius: 14px !important;" +
+    "  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);" +
+    "  width: 100%;" +
+    "  max-width: 380px;" +
+    "  padding: 20px;" +
+    "  color: #1f2933 !important;" +
+    "}" +
+    ".aw-payment-modal-header {" +
+    "  display: flex;" +
+    "  align-items: center;" +
+    "  justify-content: space-between;" +
+    "  margin-bottom: 14px;" +
+    "}" +
+    ".aw-payment-modal-header span {" +
+    "  font-size: 15px;" +
+    "  font-weight: 700;" +
+    "  color: #16213e !important;" +
+    "}" +
+    ".aw-payment-modal-close {" +
+    "  background: transparent !important;" +
+    "  border: none !important;" +
+    "  color: #616e7c !important;" +
+    "  font-size: 22px;" +
+    "  line-height: 1;" +
+    "  cursor: pointer;" +
+    "  padding: 0 !important;" +
+    "}" +
+    ".aw-payment-modal-mount {" +
+    "  min-height: 180px;" +
+    "  margin-bottom: 14px;" +
+    "}" +
+    ".aw-payment-modal-loading {" +
+    "  font-size: 13px;" +
+    "  color: #616e7c !important;" +
+    "  text-align: center;" +
+    "  padding: 24px 0;" +
+    "}" +
+    ".aw-payment-modal-submit-btn {" +
+    "  width: 100%;" +
+    "  padding: 11px 14px !important;" +
+    "  font-size: 14px;" +
+    "  font-weight: 600;" +
+    "  color: #ffffff !important;" +
+    "  background: #2f6feb !important;" +
+    "  border: none !important;" +
+    "  border-radius: 6px !important;" +
+    "  cursor: pointer;" +
+    "}" +
+    ".aw-payment-modal-submit-btn:hover {" +
+    "  background: #2657c4 !important;" +
+    "}" +
+    ".aw-payment-modal-submit-btn:disabled {" +
+    "  opacity: 0.6;" +
+    "  cursor: not-allowed;" +
+    "}" +
+    ".aw-payment-modal-status {" +
+    "  font-size: 12.5px;" +
+    "  margin-top: 8px;" +
+    "}" +
+    ".aw-payment-modal-success {" +
+    "  text-align: center;" +
+    "  padding: 20px 0;" +
+    "  font-size: 14px;" +
+    "  color: #16a34a !important;" +
+    "  font-weight: 600;" +
+    "}";
 
   var WIDGET_CSS = "" +
     ":host {" +
@@ -273,32 +365,6 @@
     "  border-radius: 6px;" +
     "  cursor: pointer;" +
     "}" +
-    ".payment-element-mount {" +
-    "  margin-top: 6px;" +
-    "  padding: 10px;" +
-    "  background: #fff;" +
-    "  border-radius: 8px;" +
-    "  border: 1px solid #e4e9f0;" +
-    "}" +
-    ".submit-payment-btn {" +
-    "  width: 100%;" +
-    "  margin-top: 10px;" +
-    "  padding: 10px 14px;" +
-    "  font-size: 13.5px;" +
-    "  font-weight: 600;" +
-    "  color: #fff;" +
-    "  background: #2f6feb;" +
-    "  border: none;" +
-    "  border-radius: 6px;" +
-    "  cursor: pointer;" +
-    "}" +
-    ".submit-payment-btn:hover {" +
-    "  background: #2657c4;" +
-    "}" +
-    ".submit-payment-btn:disabled {" +
-    "  opacity: 0.6;" +
-    "  cursor: not-allowed;" +
-    "}" +
     ".payment-status-msg {" +
     "  font-size: 12.5px;" +
     "  color: #b91c1c;" +
@@ -421,6 +487,100 @@
       return "$" + Number(amount).toFixed(2).replace(/\.00$/, "");
     }
 
+    function injectModalStyles() {
+      if (document.getElementById(MODAL_STYLE_ID)) return;
+      var styleEl = document.createElement("style");
+      styleEl.id = MODAL_STYLE_ID;
+      styleEl.textContent = MODAL_CSS;
+      document.head.appendChild(styleEl);
+    }
+
+    // Mounts the Stripe Payment Element in a modal attached to document.body,
+    // outside the shadow root — Stripe Elements does not render reliably inside
+    // a Shadow DOM. onSuccess/onCancel let the caller update the payment-offer
+    // card once the modal closes.
+    function openPaymentModal(clientSecret, onSuccess, onCancel) {
+      injectModalStyles();
+
+      var overlay = document.createElement("div");
+      overlay.className = "aw-payment-modal-overlay";
+      overlay.innerHTML =
+        '<div class="aw-payment-modal-box">' +
+        '  <div class="aw-payment-modal-header">' +
+        "    <span>Complete Your Payment</span>" +
+        '    <button type="button" class="aw-payment-modal-close" aria-label="Close">&times;</button>' +
+        "  </div>" +
+        '  <div class="aw-payment-modal-mount">' +
+        '    <div class="aw-payment-modal-loading">Loading secure payment form...</div>' +
+        "  </div>" +
+        '  <button type="button" class="aw-payment-modal-submit-btn" style="display:none;">Submit Payment</button>' +
+        '  <div class="aw-payment-modal-status"></div>' +
+        "</div>";
+
+      document.body.appendChild(overlay);
+
+      var mountEl = overlay.querySelector(".aw-payment-modal-mount");
+      var submitBtn = overlay.querySelector(".aw-payment-modal-submit-btn");
+      var statusEl = overlay.querySelector(".aw-payment-modal-status");
+      var closeBtn = overlay.querySelector(".aw-payment-modal-close");
+      var closed = false;
+
+      function closeModal() {
+        if (closed) return;
+        closed = true;
+        overlay.remove();
+      }
+
+      closeBtn.addEventListener("click", function () {
+        closeModal();
+        if (onCancel) onCancel();
+      });
+
+      loadStripeJs()
+        .then(function (Stripe) {
+          if (closed) return;
+          var stripe = Stripe(config.stripePublishableKey);
+          var elements = stripe.elements({ clientSecret: clientSecret });
+          var paymentElement = elements.create("payment");
+
+          mountEl.innerHTML = "";
+          paymentElement.mount(mountEl);
+          submitBtn.style.display = "block";
+
+          submitBtn.addEventListener("click", function () {
+            submitBtn.disabled = true;
+            statusEl.style.setProperty("color", "#616e7c", "important");
+            statusEl.textContent = "Processing payment...";
+
+            stripe
+              .confirmPayment({ elements: elements, redirect: "if_required" })
+              .then(function (result) {
+                if (result.error) {
+                  statusEl.style.setProperty("color", "#b91c1c", "important");
+                  statusEl.textContent = result.error.message || "Payment failed. Please try again.";
+                  submitBtn.disabled = false;
+                  return;
+                }
+                overlay.querySelector(".aw-payment-modal-box").innerHTML =
+                  '<div class="aw-payment-modal-success">Payment successful!</div>';
+                setTimeout(function () {
+                  closeModal();
+                  if (onSuccess) onSuccess();
+                }, 1500);
+              })
+              .catch(function () {
+                statusEl.style.setProperty("color", "#b91c1c", "important");
+                statusEl.textContent = "Something went wrong processing your payment. Please try again.";
+                submitBtn.disabled = false;
+              });
+          });
+        })
+        .catch(function () {
+          if (closed) return;
+          mountEl.innerHTML = '<div class="aw-payment-modal-loading">Could not load the payment form. Please try again.</div>';
+        });
+    }
+
     function showPaymentOffer() {
       var card = document.createElement("div");
       card.className = "payment-offer";
@@ -433,8 +593,6 @@
         '  <button type="button" class="pay-now-btn">Pay Now</button>' +
         '  <button type="button" class="dismiss-btn">Maybe later</button>' +
         "</div>" +
-        '<div class="payment-element-mount" style="display:none;"></div>' +
-        '<button type="button" class="submit-payment-btn" style="display:none;">Submit Payment</button>' +
         '<div class="payment-status-msg"></div>';
 
       card.querySelector(".offer-headline").textContent = config.offerHeadline;
@@ -447,8 +605,6 @@
       var payNowBtn = card.querySelector(".pay-now-btn");
       var dismissBtn = card.querySelector(".dismiss-btn");
       var countdownEl = card.querySelector(".offer-countdown");
-      var mountEl = card.querySelector(".payment-element-mount");
-      var submitBtn = card.querySelector(".submit-payment-btn");
       var statusEl = card.querySelector(".payment-status-msg");
 
       var secondsLeft = Math.round(config.countdownMinutes * 60);
@@ -501,44 +657,26 @@
             if (!config.stripePublishableKey) {
               throw new Error("Payments are not configured for this site (missing publishable key).");
             }
-            return loadStripeJs().then(function (Stripe) {
-              var stripe = Stripe(config.stripePublishableKey);
-              var elements = stripe.elements({ clientSecret: data.client_secret });
-              var paymentElement = elements.create("payment");
 
-              clearInterval(countdownInterval);
-              countdownEl.textContent = "";
-              mountEl.style.display = "block";
-              paymentElement.mount(mountEl);
-              submitBtn.style.display = "block";
-              statusEl.textContent = "";
+            clearInterval(countdownInterval);
+            countdownEl.textContent = "";
+            statusEl.textContent = "";
 
-              submitBtn.addEventListener("click", function () {
-                submitBtn.disabled = true;
-                statusEl.style.color = "#616e7c";
-                statusEl.textContent = "Processing payment...";
-
-                stripe
-                  .confirmPayment({ elements: elements, redirect: "if_required" })
-                  .then(function (result) {
-                    if (result.error) {
-                      statusEl.style.color = "#b91c1c";
-                      statusEl.textContent = result.error.message || "Payment failed. Please try again.";
-                      submitBtn.disabled = false;
-                      return;
-                    }
-                    card.classList.add("success");
-                    card.innerHTML =
-                      '<div class="offer-headline">Payment received!</div>' +
-                      '<div class="offer-incentive">Your booking is confirmed. We will be in touch shortly to confirm the details.</div>';
-                  })
-                  .catch(function () {
-                    statusEl.style.color = "#b91c1c";
-                    statusEl.textContent = "Something went wrong processing your payment. Please try again.";
-                    submitBtn.disabled = false;
-                  });
-              });
-            });
+            openPaymentModal(
+              data.client_secret,
+              function onSuccess() {
+                card.classList.add("success");
+                card.innerHTML =
+                  '<div class="offer-headline">Payment received!</div>' +
+                  '<div class="offer-incentive">Your booking is confirmed. We will be in touch shortly to confirm the details.</div>';
+              },
+              function onCancel() {
+                // Cancelling the modal returns the visitor to the payment offer card.
+                payNowBtn.disabled = false;
+                dismissBtn.disabled = false;
+                statusEl.textContent = "";
+              }
+            );
           })
           .catch(function (err) {
             statusEl.style.color = "#b91c1c";
