@@ -39,6 +39,13 @@ def send_lead_confirmation(lead, business_name, services, location):
         f"&location={quote(location or '')}"
     )
 
+    priority_note = ""
+    if lead.intent == "hot":
+        priority_note = """
+                    <p style="margin:0 0 28px; font-size:14px; line-height:1.6; color:#b45309; background:#fff8ec; border:1px solid #f3d9a4; border-radius:8px; padding:12px 16px;">
+                      Ask about priority booking when we call — it's the fastest way to jump the queue.
+                    </p>"""
+
     html_content = f"""
     <html>
       <body style="margin:0; padding:0; background:#f4f6f8; font-family:'Segoe UI', Helvetica, Arial, sans-serif;">
@@ -52,7 +59,7 @@ def send_lead_confirmation(lead, business_name, services, location):
                     <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#334155;">
                       We've received your enquiry with <strong>{business_name}</strong> and someone from
                       the team will be in touch with you shortly.
-                    </p>
+                    </p>{priority_note}
                     <p style="margin:0 0 28px; font-size:15px; line-height:1.6; color:#334155;">
                       In the meantime, take a look at our services and get a feel for who you'll be working with.
                     </p>
@@ -100,6 +107,15 @@ def send_owner_notification(lead, business_name, owner_email):
 
     dashboard_url = f"{APP_BASE_URL}/leads"
     intent_display = lead.intent or "Not specified"
+    is_hot = lead.intent == "hot"
+    subject_prefix = "New priority booking lead" if is_hot else "New lead"
+    phone_link = f'<a href="tel:{lead.phone}" style="color:#b91c1c;">{lead.phone}</a>'
+    call_to_action = (
+        f"This lead has expressed strong buying intent — call {lead.name} now at {phone_link} "
+        f"to secure their priority booking while it's fresh."
+        if is_hot
+        else f"Call {lead.name} now at {phone_link} while the lead is fresh."
+    )
 
     html_content = f"""
     <html>
@@ -110,7 +126,7 @@ def send_owner_notification(lead, business_name, owner_email):
               <table role="presentation" width="100%" style="max-width:520px; background:#ffffff; border-radius:10px; overflow:hidden;">
                 <tr>
                   <td style="padding:32px 32px 8px;">
-                    <h1 style="margin:0 0 4px; font-size:20px; color:#16213e;">New lead for {business_name}</h1>
+                    <h1 style="margin:0 0 4px; font-size:20px; color:#16213e;">{subject_prefix} for {business_name}</h1>
                     <p style="margin:0 0 24px; font-size:14px; color:#616e7c;">
                       A new lead just came in through your chat widget.
                     </p>
@@ -145,7 +161,7 @@ def send_owner_notification(lead, business_name, owner_email):
                 <tr>
                   <td style="padding:28px 32px 8px;">
                     <p style="margin:0 0 20px; font-size:15px; font-weight:600; color:#b91c1c;">
-                      Call {lead.name} now at <a href="tel:{lead.phone}" style="color:#b91c1c;">{lead.phone}</a> while the lead is fresh.
+                      {call_to_action}
                     </p>
                     <table role="presentation" cellpadding="0" cellspacing="0">
                       <tr>
@@ -174,14 +190,14 @@ def send_owner_notification(lead, business_name, owner_email):
     message = Mail(
         from_email=_from_email(),
         to_emails=owner_email,
-        subject=f"New lead from {business_name}: {lead.name}",
+        subject=f"{subject_prefix} from {business_name}: {lead.name}",
         html_content=html_content,
     )
     client = _get_client()
     return client.send(message)
 
 
-def send_payment_confirmation(lead, amount_cents):
+def send_payment_confirmation(lead, amount_cents, payment_label, priority_label):
     first_name = (lead.name or "there").split()[0]
     amount_display = f"${amount_cents / 100:,.2f}"
 
@@ -194,9 +210,9 @@ def send_payment_confirmation(lead, amount_cents):
               <table role="presentation" width="100%" style="max-width:520px; background:#ffffff; border-radius:10px; overflow:hidden;">
                 <tr>
                   <td style="padding:36px 36px 24px;">
-                    <h1 style="margin:0 0 12px; font-size:22px; color:#16213e;">Your booking is confirmed, {first_name}!</h1>
+                    <h1 style="margin:0 0 12px; font-size:22px; color:#16213e;">Your {priority_label} is confirmed, {first_name}!</h1>
                     <p style="margin:0 0 20px; font-size:15px; line-height:1.6; color:#334155;">
-                      We've received your deposit of <strong>{amount_display}</strong>. Your booking is confirmed.
+                      We've received your {payment_label} of <strong>{amount_display}</strong>. Your {priority_label} is confirmed.
                     </p>
                     <p style="margin:0; font-size:15px; line-height:1.6; color:#334155;">
                       Someone will be in touch shortly to confirm the details.
@@ -214,7 +230,7 @@ def send_payment_confirmation(lead, amount_cents):
     message = Mail(
         from_email=_from_email(),
         to_emails=lead.email,
-        subject="Your booking is confirmed!",
+        subject=f"Your {priority_label} is confirmed!",
         html_content=html_content,
     )
     client = _get_client()

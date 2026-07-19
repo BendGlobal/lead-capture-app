@@ -44,13 +44,27 @@ Rules for the conversation:
 - Adapt your questions based on what they tell you — don't follow a rigid script
 - If someone seems ready to purchase or book, acknowledge their enthusiasm warmly
 
-When you have collected all four pieces of information, output a special
-JSON summary on a new line in exactly this format and nothing else after it:
+Once you have collected all four pieces of information, determine their intent:
+set intent to "hot" if they expressed strong buying intent or urgency, or "warm"
+if they're interested but still exploring.
 
-LEAD_CAPTURED::{{"name":"...","email":"...","phone":"...","interest":"...","intent":"warm|hot"}}
+If {payment_enabled} is true and the visitor has expressed strong buying intent,
+after collecting all four details naturally introduce the payment option using
+this exact framing: "{offer_headline}. {incentive_text}. I can lock in your
+{priority_label} right now with a {payment_label} of {payment_amount} — that way
+you're guaranteed to be first in the queue. Would you like to secure that now, or
+would you prefer we just give you a call back?"
 
-Set intent to "hot" if they expressed strong buying intent or urgency.
-Set intent to "warm" if they're interested but still exploring."""
+If they agree, output a special JSON summary on a new line in exactly this format
+and nothing else after it:
+
+PAYMENT_READY::{{"name":"...","email":"...","phone":"...","interest":"...","intent":"hot"}}
+
+If they decline, or if {payment_enabled} is false, or their intent is "warm" rather
+than "hot", output a special JSON summary on a new line in exactly this format and
+nothing else after it:
+
+LEAD_CAPTURED::{{"name":"...","email":"...","phone":"...","interest":"...","intent":"warm|hot"}}"""
 
 database_url = os.environ.get("DATABASE_URL", "sqlite:///leads.db")
 if database_url.startswith("postgres://"):
@@ -113,6 +127,12 @@ EMPTY_MESSAGE_PLACEHOLDER = "[Start the conversation with a warm greeting]"
 DEFAULT_BUSINESS_NAME = "our business"
 DEFAULT_SERVICES = "a range of products and services"
 DEFAULT_LOCATION = "our local area"
+DEFAULT_PAYMENT_ENABLED = "true"
+DEFAULT_PAYMENT_LABEL = "deposit"
+DEFAULT_PAYMENT_AMOUNT = "$100"
+DEFAULT_PRIORITY_LABEL = "priority booking"
+DEFAULT_OFFER_HEADLINE = "Secure your booking now!"
+DEFAULT_INCENTIVE = "Pay your deposit now and we'll prioritise your job"
 
 
 @app.route("/business/<slug>")
@@ -145,8 +165,26 @@ def chat():
     business_name = data.get("business_name", "").strip() or DEFAULT_BUSINESS_NAME
     services = data.get("services", "").strip() or DEFAULT_SERVICES
     location = data.get("location", "").strip() or DEFAULT_LOCATION
+
+    payment_enabled = (data.get("payment_enabled") or DEFAULT_PAYMENT_ENABLED).strip().lower()
+    if payment_enabled not in ("true", "false"):
+        payment_enabled = DEFAULT_PAYMENT_ENABLED
+    payment_label = data.get("payment_label", "").strip() or DEFAULT_PAYMENT_LABEL
+    payment_amount = data.get("payment_amount", "").strip() or DEFAULT_PAYMENT_AMOUNT
+    priority_label = data.get("priority_label", "").strip() or DEFAULT_PRIORITY_LABEL
+    offer_headline = data.get("offer_headline", "").strip() or DEFAULT_OFFER_HEADLINE
+    incentive_text = data.get("incentive", "").strip() or DEFAULT_INCENTIVE
+
     system_prompt = ALEX_SYSTEM_PROMPT.format(
-        business_name=business_name, services=services, location=location
+        business_name=business_name,
+        services=services,
+        location=location,
+        payment_enabled=payment_enabled,
+        payment_label=payment_label,
+        payment_amount=payment_amount,
+        priority_label=priority_label,
+        offer_headline=offer_headline,
+        incentive_text=incentive_text,
     )
 
     if not message:
@@ -166,8 +204,14 @@ def chat():
     )
     reply_text = next((block.text for block in response.content if block.type == "text"), "")
 
-    if "LEAD_CAPTURED::" in reply_text:
-        lead_json = reply_text.split("LEAD_CAPTURED::", 1)[1].strip()
+    marker = None
+    if "PAYMENT_READY::" in reply_text:
+        marker = "PAYMENT_READY::"
+    elif "LEAD_CAPTURED::" in reply_text:
+        marker = "LEAD_CAPTURED::"
+
+    if marker:
+        lead_json = reply_text.split(marker, 1)[1].strip()
         lead_data = json.loads(lead_json)
 
         lead = Lead(
@@ -191,6 +235,15 @@ def chat():
         except Exception:
             app.logger.exception("Failed to send owner notification email")
 
+        if marker == "PAYMENT_READY::":
+            return jsonify({
+                "lead_captured": True,
+                "payment_ready": True,
+                "lead_id": lead.id,
+                "intent": lead.intent,
+                "message": f"Perfect, {lead.name}! Let's get your {payment_label} sorted so we can lock in your {priority_label}.",
+            })
+
         return jsonify({
             "lead_captured": True,
             "message": f"Thanks, {lead.name}! We've got your details and will be in touch shortly.",
@@ -206,6 +259,9 @@ def create_payment_intent():
     data = request.get_json(silent=True) or {}
     lead_id = data.get("lead_id")
     amount = data.get("amount", 10000)
+    currency = (data.get("currency") or "aud").strip().lower()
+    payment_label = data.get("payment_label", "").strip() or DEFAULT_PAYMENT_LABEL
+    priority_label = data.get("priority_label", "").strip() or DEFAULT_PRIORITY_LABEL
 
     lead = db.session.get(Lead, lead_id)
     if lead is None:
@@ -213,8 +269,12 @@ def create_payment_intent():
 
     payment_intent = stripe.PaymentIntent.create(
         amount=amount,
-        currency="aud",
-        metadata={"lead_id": str(lead.id)},
+        currency=currency,
+        metadata={
+            "lead_id": str(lead.id),
+            "payment_label": payment_label,
+            "priority_label": priority_label,
+        },
     )
 
     lead.stripe_payment_intent_id = payment_intent.id
@@ -246,8 +306,12 @@ def stripe_webhook():
             lead.payment_amount = payment_intent["amount_received"]
             db.session.commit()
 
+            metadata = payment_intent.get("metadata") or {}
+            payment_label = metadata.get("payment_label") or DEFAULT_PAYMENT_LABEL
+            priority_label = metadata.get("priority_label") or DEFAULT_PRIORITY_LABEL
+
             try:
-                send_payment_confirmation(lead, lead.payment_amount)
+                send_payment_confirmation(lead, lead.payment_amount, payment_label, priority_label)
             except Exception:
                 app.logger.exception("Failed to send payment confirmation email")
 

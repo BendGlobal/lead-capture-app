@@ -14,10 +14,17 @@
     mode: scriptTag.getAttribute("data-mode") || "bubble",
     apiUrl: scriptTag.getAttribute("data-api-url") || "",
     stripePublishableKey: scriptTag.getAttribute("data-stripe-publishable-key") || "",
-    depositAmount: parseFloat(scriptTag.getAttribute("data-deposit-amount")) || 100,
+    paymentEnabled: scriptTag.getAttribute("data-payment-enabled") !== "false",
+    paymentLabel: scriptTag.getAttribute("data-payment-label") || "deposit",
+    paymentAmount: parseFloat(scriptTag.getAttribute("data-payment-amount")) || 100,
+    currency: scriptTag.getAttribute("data-currency") || "AUD",
+    priorityLabel: scriptTag.getAttribute("data-priority-label") || "priority booking",
     offerHeadline: scriptTag.getAttribute("data-offer-headline") || "Secure your booking now!",
     incentive: scriptTag.getAttribute("data-incentive") || "Pay your deposit now and we'll prioritise your job",
     countdownMinutes: parseFloat(scriptTag.getAttribute("data-countdown")) || 15,
+    successMessage:
+      scriptTag.getAttribute("data-success-message") ||
+      "Your booking is confirmed. We will be in touch shortly to confirm the details.",
   };
 
   if (!config.apiUrl) {
@@ -377,6 +384,33 @@
     ".payment-offer.success {" +
     "  background: #f0fdf4;" +
     "  border-color: #86efac;" +
+    "}" +
+    ".payment-retry {" +
+    "  align-self: center;" +
+    "  max-width: 90%;" +
+    "  display: flex;" +
+    "  flex-direction: column;" +
+    "  align-items: center;" +
+    "  gap: 8px;" +
+    "  text-align: center;" +
+    "}" +
+    ".payment-retry .retry-text {" +
+    "  font-size: 12px;" +
+    "  color: #8b98a8;" +
+    "  font-style: italic;" +
+    "}" +
+    ".payment-retry-btn {" +
+    "  padding: 9px 18px;" +
+    "  font-size: 13px;" +
+    "  font-weight: 600;" +
+    "  color: #fff;" +
+    "  background: #16a34a;" +
+    "  border: none;" +
+    "  border-radius: 6px;" +
+    "  cursor: pointer;" +
+    "}" +
+    ".payment-retry-btn:hover {" +
+    "  background: #15803d;" +
     "}";
 
   var WIDGET_HTML = "" +
@@ -431,6 +465,7 @@
     var panelOpened = false;
     var currentLeadId = null;
     var stripeJsPromise = null;
+    var paymentRetried = false;
 
     function appendMessage(role, text) {
       var div = document.createElement("div");
@@ -451,6 +486,25 @@
     function setInputEnabled(enabled) {
       inputEl.disabled = !enabled;
       sendBtn.disabled = !enabled;
+    }
+
+    function appendPaymentRetry() {
+      var container = document.createElement("div");
+      container.className = "payment-retry";
+      container.innerHTML =
+        '<div class="retry-text"></div>' +
+        '<button type="button" class="payment-retry-btn">Complete Payment</button>';
+
+      container.querySelector(".retry-text").textContent =
+        "No problem — you can still secure your " + config.priorityLabel + " when you're ready";
+
+      messagesEl.appendChild(container);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+
+      container.querySelector(".payment-retry-btn").addEventListener("click", function () {
+        container.remove();
+        startPaymentFlow();
+      });
     }
 
     function loadStripeJs() {
@@ -485,6 +539,27 @@
 
     function formatDollars(amount) {
       return "$" + Number(amount).toFixed(2).replace(/\.00$/, "");
+    }
+
+    function capitalize(str) {
+      if (!str) return str;
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    function requestPaymentIntent() {
+      return fetch(PAYMENT_INTENT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lead_id: currentLeadId,
+          amount: Math.round(config.paymentAmount * 100),
+          currency: config.currency,
+          payment_label: config.paymentLabel,
+          priority_label: config.priorityLabel,
+        }),
+      }).then(function (res) {
+        return res.json();
+      });
     }
 
     function injectModalStyles() {
@@ -587,7 +662,7 @@
       card.innerHTML =
         '<div class="offer-headline"></div>' +
         '<div class="offer-incentive"></div>' +
-        '<div class="offer-deposit">Deposit: <strong></strong></div>' +
+        '<div class="offer-deposit"><span class="offer-deposit-label"></span> <strong></strong></div>' +
         '<div class="offer-countdown"></div>' +
         '<div class="offer-actions">' +
         '  <button type="button" class="pay-now-btn">Pay Now</button>' +
@@ -597,7 +672,9 @@
 
       card.querySelector(".offer-headline").textContent = config.offerHeadline;
       card.querySelector(".offer-incentive").textContent = config.incentive;
-      card.querySelector(".offer-deposit strong").textContent = formatDollars(config.depositAmount);
+      card.querySelector(".offer-deposit-label").textContent = capitalize(config.paymentLabel) + ":";
+      card.querySelector(".offer-deposit strong").textContent =
+        formatDollars(config.paymentAmount) + " secures your " + config.priorityLabel;
 
       messagesEl.appendChild(card);
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -639,17 +716,7 @@
         statusEl.style.color = "#616e7c";
         statusEl.textContent = "Setting up secure payment...";
 
-        fetch(PAYMENT_INTENT_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            lead_id: currentLeadId,
-            amount: Math.round(config.depositAmount * 100),
-          }),
-        })
-          .then(function (res) {
-            return res.json();
-          })
+        requestPaymentIntent()
           .then(function (data) {
             if (!data.client_secret) {
               throw new Error("No client secret returned");
@@ -667,8 +734,9 @@
               function onSuccess() {
                 card.classList.add("success");
                 card.innerHTML =
-                  '<div class="offer-headline">Payment received!</div>' +
-                  '<div class="offer-incentive">Your booking is confirmed. We will be in touch shortly to confirm the details.</div>';
+                  '<div class="offer-headline">Your ' + capitalize(config.priorityLabel) + ' is confirmed!</div>' +
+                  '<div class="offer-incentive"></div>';
+                card.querySelector(".offer-incentive").textContent = config.successMessage;
               },
               function onCancel() {
                 // Cancelling the modal returns the visitor to the payment offer card.
@@ -685,6 +753,43 @@
             dismissBtn.disabled = false;
           });
       });
+    }
+
+    // Used when Alex has already secured agreement to pay inside the conversation
+    // itself (PAYMENT_READY::) — skips the offer card and countdown entirely and
+    // opens the Stripe modal directly.
+    function startPaymentFlow() {
+      appendSystemNote("Setting up secure payment...");
+
+      requestPaymentIntent()
+        .then(function (data) {
+          if (!data.client_secret) {
+            throw new Error("No client secret returned");
+          }
+          if (!config.stripePublishableKey) {
+            throw new Error("Payments are not configured for this site (missing publishable key).");
+          }
+
+          openPaymentModal(
+            data.client_secret,
+            function onSuccess() {
+              appendSystemNote(config.successMessage);
+            },
+            function onCancel() {
+              if (!paymentRetried) {
+                paymentRetried = true;
+                appendPaymentRetry();
+              } else {
+                appendSystemNote("We'll be in touch to arrange your " + config.priorityLabel + ".");
+              }
+            }
+          );
+        })
+        .catch(function (err) {
+          appendSystemNote(
+            err.message || "Something went wrong setting up your payment. Please contact us directly to complete your booking."
+          );
+        });
     }
 
     function sendToServer(message, displayUserMessage) {
@@ -704,6 +809,15 @@
           business_name: config.businessName,
           services: config.services,
           location: config.location,
+          payment_enabled: String(config.paymentEnabled),
+          payment_label: config.paymentLabel,
+          payment_amount: formatDollars(config.paymentAmount),
+          currency: config.currency,
+          priority_label: config.priorityLabel,
+          offer_headline: config.offerHeadline,
+          incentive: config.incentive,
+          countdown: config.countdownMinutes,
+          success_message: config.successMessage,
         }),
       })
         .then(function (res) {
@@ -720,12 +834,17 @@
           if (data.lead_captured) {
             leadCaptured = true;
             currentLeadId = data.lead_id;
-            appendSystemNote("This conversation has ended. Thanks for reaching out!");
             inputEl.placeholder = "Conversation complete";
             setInputEnabled(false);
 
-            if (data.intent === "hot") {
+            if (data.payment_ready === true) {
+              appendSystemNote("Perfect — let's get your " + config.priorityLabel + " locked in now.");
+              startPaymentFlow();
+            } else if (data.intent === "hot" && config.paymentEnabled) {
+              appendSystemNote("This conversation has ended. Thanks for reaching out!");
               showPaymentOffer();
+            } else {
+              appendSystemNote("This conversation has ended. Thanks for reaching out!");
             }
           } else {
             setInputEnabled(true);
