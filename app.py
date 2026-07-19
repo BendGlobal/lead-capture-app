@@ -306,9 +306,9 @@ def stripe_webhook():
             lead.payment_amount = payment_intent["amount_received"]
             db.session.commit()
 
-            metadata = payment_intent.get("metadata") or {}
-            payment_label = metadata.get("payment_label") or DEFAULT_PAYMENT_LABEL
-            priority_label = metadata.get("priority_label") or DEFAULT_PRIORITY_LABEL
+            metadata = payment_intent.metadata or {}
+            payment_label = getattr(payment_intent.metadata, "payment_label", "deposit")
+            priority_label = getattr(payment_intent.metadata, "priority_label", "priority booking")
 
             try:
                 send_payment_confirmation(lead, lead.payment_amount, payment_label, priority_label)
