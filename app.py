@@ -217,8 +217,8 @@ def chat():
     payment_label = data.get("payment_label", "").strip() or DEFAULT_PAYMENT_LABEL
     payment_amount = data.get("payment_amount", "").strip() or DEFAULT_PAYMENT_AMOUNT
     priority_label = data.get("priority_label", "").strip() or DEFAULT_PRIORITY_LABEL
-    offer_headline = data.get("offer_headline", "").strip() or DEFAULT_OFFER_HEADLINE
-    incentive_text = data.get("incentive", "").strip() or DEFAULT_INCENTIVE
+    offer_headline = (data.get("offer_headline", "").strip() or DEFAULT_OFFER_HEADLINE).rstrip(".!?")
+    incentive_text = (data.get("incentive", "").strip() or DEFAULT_INCENTIVE).rstrip(".!?")
     tone = data.get("tone", "").strip() or DEFAULT_TONE
     emoji_style = data.get("emoji_style", "").strip() or DEFAULT_EMOJI_STYLE
 
