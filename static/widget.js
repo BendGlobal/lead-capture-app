@@ -25,6 +25,8 @@
     successMessage:
       scriptTag.getAttribute("data-success-message") ||
       "Your booking is confirmed. We will be in touch shortly to confirm the details.",
+    tone: scriptTag.getAttribute("data-tone") || "friendly",
+    emojiStyle: scriptTag.getAttribute("data-emoji-style") || "normal",
   };
 
   if (!config.apiUrl) {
@@ -818,6 +820,8 @@
           incentive: config.incentive,
           countdown: config.countdownMinutes,
           success_message: config.successMessage,
+          tone: config.tone,
+          emoji_style: config.emojiStyle,
         }),
       })
         .then(function (res) {
