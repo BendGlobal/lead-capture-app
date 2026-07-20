@@ -844,7 +844,7 @@
             if (data.payment_ready === true) {
               appendSystemNote("Perfect — let's get your " + config.priorityLabel + " locked in now.");
               startPaymentFlow();
-            } else if (data.intent === "hot" && config.paymentEnabled) {
+            } else if (data.intent === "hot" && config.paymentEnabled && !data.payment_offered) {
               appendSystemNote("This conversation has ended. Thanks for reaching out!");
               showPaymentOffer();
             } else {

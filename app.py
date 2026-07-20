@@ -298,6 +298,7 @@ def chat():
             "message": f"Thanks, {lead.name}! We've got your details and will be in touch shortly.",
             "lead_id": lead.id,
             "intent": lead.intent,
+            "payment_offered": payment_enabled == "true" and lead.intent == "hot",
         })
 
     return jsonify({"lead_captured": False, "message": reply_text})
